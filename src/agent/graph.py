@@ -30,7 +30,7 @@ def load_website_text(url: str) -> str:
     return text
 
 # Example: your website URL
-website_docs = [load_website_text("https://example.com")]
+website_docs = [load_website_text("https://emerico.com")]
 
 # -------------------------
 # 3. Setup embeddings & vector store
