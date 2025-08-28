@@ -1,53 +1,30 @@
-"""LangGraph single-node graph template.
+from typing import Annotated
 
-Returns a predefined response. Replace logic and configuration as needed.
-"""
+from langchain.chat_models import init_chat_model
+from typing_extensions import TypedDict
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any, Dict, TypedDict
-
-from langgraph.graph import StateGraph
-from langgraph.runtime import Runtime
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 
 
-class Context(TypedDict):
-    """Context parameters for the agent.
-
-    Set these when creating assistants OR when invoking the graph.
-    See: https://langchain-ai.github.io/langgraph/cloud/how-tos/configuration_cloud/
-    """
-
-    my_configurable_param: str
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
 
 
-@dataclass
-class State:
-    """Input state for the agent.
-
-    Defines the initial structure of incoming data.
-    See: https://langchain-ai.github.io/langgraph/concepts/low_level/#state
-    """
-
-    changeme: str = "example"
+graph_builder = StateGraph(State)
 
 
-async def call_model(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """Process input and returns output.
-
-    Can use runtime context to alter behavior.
-    """
-    return {
-        "changeme": "output from call_model. "
-        f"Configured with {runtime.context.get('my_configurable_param')}"
-    }
+llm = init_chat_model("openai:gpt-4o-mini")
 
 
-# Define the graph
-graph = (
-    StateGraph(State, context_schema=Context)
-    .add_node(call_model)
-    .add_edge("__start__", "call_model")
-    .compile(name="New Graph")
-)
+def chatbot(state: State):
+    return {"messages": [llm.invoke(state["messages"])]}
+
+
+# The first argument is the unique node name
+# The second argument is the function or object that will be called whenever
+# the node is used.
+graph_builder.add_node("chatbot", chatbot)
+graph_builder.add_edge(START, "chatbot")
+graph_builder.add_edge("chatbot", END)
+graph = graph_builder.compile()
