@@ -4,7 +4,7 @@ from typing_extensions import TypedDict
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, AIMessage
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -57,20 +57,36 @@ rag_chain = ConversationalRetrievalChain.from_llm(
 # -------------------------
 def chatbot(state: State):
     """
-    Extract the last user message (HumanMessage or dict),
-    then retrieve and generate RAG response.
+    Extract last user message, prepare chat history,
+    then retrieve & generate RAG response.
     """
     last_msg = state["messages"][-1]
 
-    # Support LangChain message objects
-    if hasattr(last_msg, "content"):
-        query = last_msg.content
-    else:
-        query = last_msg["content"]
+    # Get content from message object or dict
+    query = last_msg.content if hasattr(last_msg, "content") else last_msg["content"]
 
-    response = rag_chain.run(query)
+    # Build chat_history for ConversationalRetrievalChain
+    chat_history = []
+    for msg in state["messages"][:-1]:  # exclude current query
+        if hasattr(msg, "content"):
+            role = getattr(msg, "role", "user")
+            if role == "user":
+                chat_history.append(HumanMessage(content=msg.content))
+            else:
+                chat_history.append(AIMessage(content=msg.content))
+        else:
+            if msg["role"] == "user":
+                chat_history.append(HumanMessage(content=msg["content"]))
+            else:
+                chat_history.append(AIMessage(content=msg["content"]))
 
-    # Always return as a list of dict messages for LangGraph
+    # Run RAG chain
+    response = rag_chain.run({
+        "question": query,
+        "chat_history": chat_history
+    })
+
+    # Return as LangGraph message list
     return {"messages": [{"role": "assistant", "content": response}]}
 
 # -------------------------
@@ -81,5 +97,4 @@ graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 graph = graph_builder.compile()
 
-print("✅ RAG-enabled LangGraph chatbot ready!")
-
+print("✅ Full RAG-enabled LangGraph chatbot ready!")
