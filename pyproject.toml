@@ -15,7 +15,8 @@ dependencies = [
     "langchain-openai>=0.1.0",
     "langchain-community>=0.0.9",      # for Chroma vectorstore
     "beautifulsoup4>=4.12.2",          # for website scraping
-    "requests>=2.32.0"                 # for website HTTP requests
+    "requests>=2.32.0",                # for website HTTP requests
+    "chromadb>=0.4.0"
 ]
 
 
