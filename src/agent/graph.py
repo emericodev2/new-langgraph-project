@@ -1,14 +1,12 @@
 from typing import Annotated
 from typing_extensions import TypedDict
 
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain.chains import ConversationalRetrievalChain
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
-# LangChain imports for RAG
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.chains import ConversationalRetrievalChain
 from bs4 import BeautifulSoup
 import requests
 
@@ -30,7 +28,7 @@ def load_website_text(url: str) -> str:
     return text
 
 # Example: your website URL
-website_docs = [load_website_text("https://emerico.com")]
+website_docs = [load_website_text("https://example.com")]
 
 # -------------------------
 # 3. Setup embeddings & vector store
@@ -57,9 +55,7 @@ rag_chain = ConversationalRetrievalChain.from_llm(
 # 6. Define chatbot node
 # -------------------------
 def chatbot(state: State):
-    # Get the last user message
-    query = state["messages"][-1]["content"]
-    # Retrieve and generate response
+    query = state["messages"][-1]["content"]  # last user input
     response = rag_chain.run(query)
     return {"messages": [{"role": "assistant", "content": response}]}
 
@@ -71,7 +67,4 @@ graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 graph = graph_builder.compile()
 
-# -------------------------
-# 8. Ready to use
-# -------------------------
-print("RAG-enabled LangGraph chatbot ready!")
+print("✅ RAG-enabled LangGraph chatbot ready!")
