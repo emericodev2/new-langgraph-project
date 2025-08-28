@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LangGraph Chat</title>
+  <style>
+    #chat {
+      width: 500px;
+      height: 400px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      font-family: Arial, sans-serif;
+    }
+    .message { margin: 5px 0; padding: 5px 10px; border-radius: 5px; max-width: 80%; }
+    .human { background-color: #d0e7ff; align-self: flex-end; margin-left: auto; }
+    .assistant { background-color: #f0f0f0; align-self: flex-start; margin-right: auto; }
+    #inputBox { width: 400px; padding: 5px; }
+    #sendBtn { padding: 5px 10px; }
+    #inputArea { margin-top: 10px; display: flex; gap: 5px; }
+    #chatContainer { display: flex; flex-direction: column; }
+  </style>
+</head>
+<body>
+  <h2>LangGraph Chat</h2>
+  <div id="chatContainer">
+    <div id="chat"></div>
+    <div id="inputArea">
+      <input type="text" id="inputBox" placeholder="Type your message..." />
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const deploymentUrl = "https://sample-chatbot-7b0a5cab9a5d5b458bb771f72f4fdbac.us.langgraph.app/runs/stream";
+    const apiKey = "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";
+
+    const chatDiv = document.getElementById("chat");
+    const inputBox = document.getElementById("inputBox");
+    const sendBtn = document.getElementById("sendBtn");
+
+    function addMessage(content, role) {
+      const p = document.createElement("div");
+      p.className = "message " + role;
+      p.textContent = content;
+      chatDiv.appendChild(p);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+
+    async function sendMessage(message) {
+      addMessage(message, "human");
+
+      const response = await fetch(deploymentUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": apiKey
+        },
+        body: JSON.stringify({
+          assistant_id: "agent",
+          input: { messages: [{ role: "human", content: message }] },
+          stream_mode: "updates"
+        })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        chunk.split("\n").forEach(line => {
+          if (line.startsWith("data: ")) {
+            const data = line.replace("data: ", "").trim();
+            if (data !== "[DONE]") {
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.chatbot?.messages) {
+                  parsed.chatbot.messages.forEach(msg => {
+                    addMessage(msg.content, "assistant");
+                  });
+                }
+              } catch (err) {
+                console.error("Failed to parse chunk", err);
+              }
+            }
+          }
+        });
+      }
+    }
+
+    sendBtn.addEventListener("click", () => {
+      const message = inputBox.value.trim();
+      if (message) {
+        sendMessage(message);
+        inputBox.value = "";
+      }
+    });
+
+    inputBox.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendBtn.click();
+    });
+  </script>
+</body>
+</html>
