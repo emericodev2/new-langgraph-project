@@ -34,7 +34,7 @@ def load_website_text(url: str) -> str:
         return text
     except Exception as e:
         print(f"⚠️ Could not load website {url}: {e}")
-        return ""  # Return empty string to trigger fallback
+        return ""  # fallback to OpenAI
 
 website_text = load_website_text("https://emerico.com")
 
@@ -60,7 +60,7 @@ if website_text:
         retriever=retriever
     )
 else:
-    rag_chain = None  # no RAG available
+    rag_chain = None  # RAG not available
 
 # -------------------------
 # 6. Initialize LLM
@@ -103,10 +103,14 @@ def chatbot(state: State):
         except Exception as e:
             print(f"⚠️ RAG chain failed: {e}")
 
-    # 2️⃣ Fallback to plain OpenAI
+    # 2️⃣ Fallback to plain OpenAI if RAG returned nothing
     if not answer:
-        response = llm.invoke([HumanMessage(content=query)])
-        answer = response.content if hasattr(response, "content") else str(response)
+        try:
+            response = llm([HumanMessage(content=query)])
+            answer = response[0].content
+        except Exception as e:
+            print(f"⚠️ OpenAI fallback failed: {e}")
+            answer = "Sorry, I could not generate a response at this time."
 
     return {"messages": [{"role": "assistant", "content": answer}]}
 
@@ -118,4 +122,4 @@ graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 graph = graph_builder.compile()
 
-print("✅ RAG + OpenAI fallback chatbot ready with safe website handling!")
+print("✅ Fully working RAG + OpenAI fallback LangGraph chatbot ready!")
