@@ -22,41 +22,50 @@ class State(TypedDict):
 graph_builder = StateGraph(State)
 
 # -------------------------
-# 2. Load website content
+# 2. Load website content safely
 # -------------------------
 def load_website_text(url: str) -> str:
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    text = " ".join([p.get_text() for p in soup.find_all("p")])
-    return text
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()  # raises HTTPError for bad responses
+        soup = BeautifulSoup(response.text, "html.parser")
+        text = " ".join([p.get_text() for p in soup.find_all("p")])
+        return text
+    except Exception as e:
+        print(f"⚠️ Could not load website {url}: {e}")
+        return ""  # Return empty string to trigger fallback
 
 website_text = load_website_text("https://emerico.com")
 
 # -------------------------
 # 3. Split text into chunks
 # -------------------------
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-docs = text_splitter.split_text(website_text)
+if website_text:
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    docs = text_splitter.split_text(website_text)
+
+    # -------------------------
+    # 4. Setup embeddings & vector store
+    # -------------------------
+    embeddings = OpenAIEmbeddings()
+    vectorstore = Chroma.from_texts(docs, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    # -------------------------
+    # 5. Create RAG chain
+    # -------------------------
+    rag_chain = ConversationalRetrievalChain.from_llm(
+        llm=ChatOpenAI(model="gpt-4o-mini"),
+        retriever=retriever
+    )
+else:
+    rag_chain = None  # no RAG available
 
 # -------------------------
-# 4. Setup embeddings & vector store
-# -------------------------
-embeddings = OpenAIEmbeddings()
-vectorstore = Chroma.from_texts(docs, embeddings)
-retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-
-# -------------------------
-# 5. Initialize LLM
+# 6. Initialize LLM
 # -------------------------
 llm = ChatOpenAI(model="gpt-4o-mini")
-
-# -------------------------
-# 6. Create RAG chain
-# -------------------------
-rag_chain = ConversationalRetrievalChain.from_llm(
-    llm=llm,
-    retriever=retriever
-)
 
 # -------------------------
 # 7. Define chatbot node
@@ -80,18 +89,24 @@ def chatbot(state: State):
             else:
                 chat_history.append(AIMessage(content=msg["content"]))
 
-    # 1️⃣ Run RAG chain
-    rag_response = rag_chain.run({
-        "question": query,
-        "chat_history": chat_history
-    })
+    answer = None
 
-    # 2️⃣ Fallback to OpenAI if RAG found nothing
-    if not rag_response.strip():
+    # 1️⃣ Try RAG if available
+    if rag_chain:
+        try:
+            rag_response = rag_chain.run({
+                "question": query,
+                "chat_history": chat_history
+            })
+            if rag_response.strip():
+                answer = rag_response
+        except Exception as e:
+            print(f"⚠️ RAG chain failed: {e}")
+
+    # 2️⃣ Fallback to plain OpenAI
+    if not answer:
         response = llm.invoke([HumanMessage(content=query)])
         answer = response.content if hasattr(response, "content") else str(response)
-    else:
-        answer = rag_response
 
     return {"messages": [{"role": "assistant", "content": answer}]}
 
@@ -103,4 +118,4 @@ graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 graph = graph_builder.compile()
 
-print("✅ RAG + OpenAI fallback LangGraph chatbot ready!")
+print("✅ RAG + OpenAI fallback chatbot ready with safe website handling!")
