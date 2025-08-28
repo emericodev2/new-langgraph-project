@@ -4,6 +4,8 @@ from typing_extensions import TypedDict
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
+from langchain.schema import HumanMessage
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
@@ -27,15 +29,14 @@ def load_website_text(url: str) -> str:
     text = " ".join([p.get_text() for p in soup.find_all("p")])
     return text
 
-# Example: your website URL
-website_docs = [load_website_text("https://example.com")]
+# Example website
+website_docs = [load_website_text("https://emerico.com")]
 
 # -------------------------
 # 3. Setup embeddings & vector store
 # -------------------------
 embeddings = OpenAIEmbeddings()
 vectorstore = Chroma.from_texts(website_docs, embeddings)
-
 retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
 # -------------------------
@@ -55,8 +56,21 @@ rag_chain = ConversationalRetrievalChain.from_llm(
 # 6. Define chatbot node
 # -------------------------
 def chatbot(state: State):
-    query = state["messages"][-1]["content"]  # last user input
+    """
+    Extract the last user message (HumanMessage or dict),
+    then retrieve and generate RAG response.
+    """
+    last_msg = state["messages"][-1]
+
+    # Support LangChain message objects
+    if hasattr(last_msg, "content"):
+        query = last_msg.content
+    else:
+        query = last_msg["content"]
+
     response = rag_chain.run(query)
+
+    # Always return as a list of dict messages for LangGraph
     return {"messages": [{"role": "assistant", "content": response}]}
 
 # -------------------------
