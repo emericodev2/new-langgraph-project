@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
 from langchain.schema import HumanMessage, AIMessage
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -29,23 +30,28 @@ def load_website_text(url: str) -> str:
     text = " ".join([p.get_text() for p in soup.find_all("p")])
     return text
 
-# Example website
-website_docs = [load_website_text("https://emerico.com")]
+website_text = load_website_text("https://emerico.com")
 
 # -------------------------
-# 3. Setup embeddings & vector store
+# 3. Split text into chunks
+# -------------------------
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+docs = text_splitter.split_text(website_text)
+
+# -------------------------
+# 4. Setup embeddings & vector store
 # -------------------------
 embeddings = OpenAIEmbeddings()
-vectorstore = Chroma.from_texts(website_docs, embeddings)
+vectorstore = Chroma.from_texts(docs, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
 # -------------------------
-# 4. Initialize LLM
+# 5. Initialize LLM
 # -------------------------
 llm = ChatOpenAI(model="gpt-4o-mini")
 
 # -------------------------
-# 5. Create RAG chain
+# 6. Create RAG chain
 # -------------------------
 rag_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
@@ -53,21 +59,15 @@ rag_chain = ConversationalRetrievalChain.from_llm(
 )
 
 # -------------------------
-# 6. Define chatbot node
+# 7. Define chatbot node
 # -------------------------
 def chatbot(state: State):
-    """
-    Extract last user message, prepare chat history,
-    then retrieve & generate RAG response.
-    """
     last_msg = state["messages"][-1]
-
-    # Get content from message object or dict
     query = last_msg.content if hasattr(last_msg, "content") else last_msg["content"]
 
-    # Build chat_history for ConversationalRetrievalChain
+    # Build chat history for RAG
     chat_history = []
-    for msg in state["messages"][:-1]:  # exclude current query
+    for msg in state["messages"][:-1]:
         if hasattr(msg, "content"):
             role = getattr(msg, "role", "user")
             if role == "user":
@@ -80,21 +80,27 @@ def chatbot(state: State):
             else:
                 chat_history.append(AIMessage(content=msg["content"]))
 
-    # Run RAG chain
-    response = rag_chain.run({
+    # 1️⃣ Run RAG chain
+    rag_response = rag_chain.run({
         "question": query,
         "chat_history": chat_history
     })
 
-    # Return as LangGraph message list
-    return {"messages": [{"role": "assistant", "content": response}]}
+    # 2️⃣ Fallback to OpenAI if RAG found nothing
+    if not rag_response.strip():
+        response = llm.invoke([HumanMessage(content=query)])
+        answer = response.content if hasattr(response, "content") else str(response)
+    else:
+        answer = rag_response
+
+    return {"messages": [{"role": "assistant", "content": answer}]}
 
 # -------------------------
-# 7. Build graph
+# 8. Build graph
 # -------------------------
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 graph = graph_builder.compile()
 
-print("✅ Full RAG-enabled LangGraph chatbot ready!")
+print("✅ RAG + OpenAI fallback LangGraph chatbot ready!")
